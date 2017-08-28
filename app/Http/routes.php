@@ -57,6 +57,41 @@ Route::group(['middleware' => 'authorize','prefix' => 'project'],function (){
     ]);
     //转让项目
     Route::post('transfer/{id}')->uses('ProjectController@transfer')->name('project.transfer');
+
+    //加载Calibre项目，从Calibre库中复制zip书籍到系统
+    Route::post('calibres/reload', [
+        'as' => 'project.calibres.reload', 'uses' => 'ProjectController@reloadCalibres'
+    ]);
+
+    //查询Calibre项目
+    Route::post('calibres/query/{id}', [
+        'as' => 'project.calibres.query', 'uses' => 'ProjectController@queryCalibre'
+    ]);
+
+    //删除Calibre项目
+    Route::post('calibres/delete/{id}', [
+        'as' => 'project.calibres.delete', 'uses' => 'ProjectController@deleteCalibre'
+    ]);
+
+    //导入/转化Calibre项目
+    Route::post('calibres/import/{id}', [
+        'as' => 'project.calibres.import', 'uses' => 'ProjectController@importCalibre'
+    ]);
+
+    //导入/转化所有Calibre项目
+    Route::post('calibres/importAll', [
+        'as' => 'project.calibres.importAll', 'uses' => 'ProjectController@importAllCalibre'
+    ]);
+
+    //替换文档内的链接
+    Route::get('calibres/replace/{id}', [
+        'as' => 'project.calibres.replace', 'uses' => 'ProjectController@replaceCalibreUrl'
+    ]);
+
+    //处理pre标签引起的代码块问题
+    Route::get('calibres/deal/{id}', [
+        'as' => 'project.calibres.deal', 'uses' => 'ProjectController@dealCalibreCode'
+    ]);
 });
 
 Route::group(['middleware' => 'authorize','prefix' => 'docs'],function (){
@@ -123,6 +158,10 @@ Route::group(['middleware' => 'authorize','prefix' => 'member'],function (){
     //我的项目列表
     Route::get('projects',[
         'as' => 'member.projects', 'uses' => 'MemberController@projects'
+    ]);
+    //Calibre项目列表
+    Route::get('calibres', [
+        'as' => 'member.calibres', 'uses' => 'MemberController@calibres'
     ]);
     //用户中心
     Route::match(['post','get'],'',[

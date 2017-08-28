@@ -21,6 +21,10 @@ use SmartWiki\Exceptions\ResultException;
  * @property integer $create_at
  * @property string $modify_time
  * @property integer $modify_at
+ * @property string $project_cover 项目封面
+ * @property string $project_author 项目作者
+ * @property string $project_publisher 出版社
+ * @property string $project_date 出版时间
  * @property string $version 当前时间戳
  * @method static \Illuminate\Database\Query\Builder|Project whereProjectId($value)
  * @method static \Illuminate\Database\Query\Builder|Project whereProjectName($value)
@@ -83,11 +87,11 @@ class Project extends ModelBase
      */
     public function addOrUpdate()
     {
-        if(empty($this->project_name) || mb_strlen($this->project_name) < 2 || mb_strlen($this->project_name) > 50){
-            throw new FormatException('项目名称必须在2-50字之间',40201);
+        if(empty($this->project_name) || mb_strlen($this->project_name) < 2 || mb_strlen($this->project_name) > 100){
+            throw new FormatException('项目名称必须在2-100字之间',40201);
         }
-        if(mb_strlen($this->description) > 1000){
-            throw new FormatException('项目描述不能超过1000字',40202);
+        if(mb_strlen($this->description) > 2500){
+            throw new FormatException('项目描述不能超过2500字',40202);
         }
 
         if(in_array($this->project_open_state,['0','1','2']) === false){
@@ -133,7 +137,7 @@ class Project extends ModelBase
      * @param int $pageSize
      * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
      */
-    public static function getParticipationProjectList($member_id, $pageIndex = 1, $pageSize = 20)
+    public static function getParticipationProjectList($member_id, $pageIndex = 1, $pageSize = 20, $projectName = null)
     {
         $member = Member::find($member_id);
 
@@ -145,19 +149,20 @@ class Project extends ModelBase
                     $join->on('rel.project_id','=','pro.project_id')
                         ->where('rel.member_id','=',$member_id);
                 })
-                ->leftJoin('member as m','m.member_id','=','pro.create_at')
-                ->orderBy('pro.project_id','DESC');
-
-
+                ->leftJoin('member as m','m.member_id','=','pro.create_at');
+                //->orderBy('pro.project_id','DESC');
         }else{
             $query = DB::table('project as pro')
                 ->select(['pro.*','rel.role_type','rel.member_id as rel_member_id','m.account','m.nickname'])
                 ->leftJoin('relationship as rel','rel.project_id','=','pro.project_id')
                 ->leftJoin('member as m','m.member_id','=','pro.create_at')
-                ->where('rel.member_id','=',$member_id)
-                ->orderBy('pro.project_id','DESC');
+                ->where('rel.member_id','=',$member_id);
+                //->orderBy('pro.project_id','DESC');
         }
-        $query =  $query->paginate($pageSize,['*'],'page',$pageIndex);
+        if (!empty($projectName)) {
+            $query = $query->where("pro.project_name", "like", "%".$projectName."%");
+        }
+        $query =  $query->orderBy('pro.project_id','DESC')->paginate($pageSize,['*'],'page',$pageIndex);
 
         if($query->isEmpty() === false){
             foreach ($query as &$item){
@@ -208,10 +213,14 @@ class Project extends ModelBase
             return $query;
 
         }else{
-            $query = DB::table('project')
-                ->select('*')
-                ->where('project_open_state','<>',0)
-                ->orderBy('project_id','DESC')
+            $query = DB::table('project as pro')
+                ->select('pro.*')
+                ->leftJoin('calibre as rel',function($join){
+                    $join->on('pro.project_id','=','rel.project_id');
+                })
+                ->where('pro.project_open_state','<>',0)
+                ->where('rel.state', '=', 1)->orWhereNull('rel.state')
+                ->orderBy('pro.project_id','DESC')
                 ->paginate($pageSize,['*'],'page',$pageIndex);
 
             return $query;
@@ -377,7 +386,7 @@ class Project extends ModelBase
                 $selected = $item['doc_id'] == $selected_id ? ' class="jstree-clicked"' : '';
                 $selected_li = $item['doc_id'] == $selected_parent_id ? ' class="jstree-open"' : '';
 
-                $menu .= '<li id="'.$item['doc_id'].'"'.$selected_li.'><a href="'. route('document.show',['doc_id'=> $item['doc_id']]) .'" title="' . htmlspecialchars($item['doc_name']) . '"'.$selected.'>' . $item['doc_name'] .'</a>';
+                $menu .= '<li id="'.$item['doc_id'].'"'.$selected_li.'><a href="'. route('document.show',['doc_id'=> $item['doc_id']]) .'" title="' . htmlspecialchars($item['doc_name']) . '"'.$selected.'>' . htmlspecialchars($item['doc_name']) .'</a>';
 
                 $key = array_search($item['doc_id'], array_column($array, 'parent_id'));
 
@@ -471,7 +480,7 @@ class Project extends ModelBase
     public static function search($keyword,$pageIndex= 1, $pageSize = 20, $memberId = null)
     {
         if(empty($keyword)) {
-            return false;
+            return Project::getProjectByMemberId($pageIndex, $pageSize, $memberId);
         }
         $keyword = '%'. preg_replace('/\s+/','%',trim($keyword)).'%';
 
@@ -510,18 +519,36 @@ class Project extends ModelBase
                    ]);
            }
        }else {
-           $searchResult = DB::table('project')->select(['*'])
-               ->where('project_open_state', '<>', 0)
-               ->where(function ($query) use ($keyword) {
-                   $query->where('project_name', 'like', $keyword)
-                       ->orWhere('description', 'like', $keyword);
+           $searchResult = DB::table('project as pro')->select(['pro.*'])
+               ->leftJoin('calibre as rel',function($join){
+                   $join->on('pro.project_id','=','rel.project_id');
                })
-               ->orderBy('project_id', 'DESC')
+               ->where('pro.project_open_state', '<>', 0)
+               ->where(function ($query) use ($keyword) {
+                   $query->where('pro.project_name', 'like', $keyword)
+                       ->orWhere('pro.description', 'like', $keyword);
+               })
+               ->where('rel.state', '=', 1)->orWhereNull('rel.state')
+               ->orderBy('pro.project_id', 'DESC')
                ->paginate($pageSize, ['*'], 'page', $pageIndex)
                ->appends([
                    'keyword' => $keyword
                ]);
        }
         return $searchResult;
+    }
+
+    /**
+     * @return mixed
+     */
+    public static function getAllCalibreProjectList()
+    {
+        $query = DB::table('project as pro')
+            ->select(['pro.*','rel.role_type','rel.member_id as rel_member_id','m.account','m.nickname'])
+            ->leftJoin('relationship as rel','rel.project_id','=','pro.project_id')
+            ->leftJoin('member as m','m.member_id','=','pro.create_at')
+            ->where('pro.calibre_id is not null')
+            ->orderBy('pro.project_id','DESC');
+        return $query;
     }
 }

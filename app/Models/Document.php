@@ -2,6 +2,7 @@
 
 namespace SmartWiki\Models;
 
+use DB;
 use Cache;
 use Carbon\Carbon;
 
@@ -20,6 +21,7 @@ use Carbon\Carbon;
  * @property string $modify_time
  * @property integer $modify_at
  * @property string $version 当前时间戳
+ * @property string $calibre_url
  * @method static \Illuminate\Database\Query\Builder|Document whereDocId($value)
  * @method static \Illuminate\Database\Query\Builder|Document whereDocName($value)
  * @method static \Illuminate\Database\Query\Builder|Document whereParentId($value)
@@ -54,11 +56,48 @@ class Document extends ModelBase
 
         if(empty($document) or $update){
             $document = Document::find($doc_id);
+
+            if (!empty($document->doc_content)) {
+                //替换掉calibre书籍转换过来的part0004.html格式的链接地址
+                $document->doc_content = preg_replace("/\\]\\(part(\d+)\\.html(#.*)?\\)/", '](#)', $document->doc_content) ;
+            }
+
             $expiresAt = Carbon::now()->addHour(12);
 
             Cache::put($key,$document,$expiresAt);
         }
         return $document;
+    }
+
+    /**
+     * 从缓存中获取calibre的url与doc_id映射关系（用于替换文档内容中的calibre书籍链接）
+     * @param $project_id
+     * @param bool $update
+     */
+    public static function getCalibreUrlFromCache($project_id, $update = false) {
+        if(empty($project_id)){
+            return false;
+        }
+        $key = 'project.id.' ."calibre.url.". $project_id;
+
+        $calibreUrl = $update or Cache::get($key);
+
+        if(empty($calibreUrl)) {
+            $calibreUrl = array();
+            $query = DB::table('document')->select(["doc_id", "calibre_url"])
+                ->whereNotNull("calibre_url")->where("project_id", "=", $project_id)->get();
+            foreach ($query as $item){
+                $calibreUrl[$item->calibre_url] = $item->doc_id;
+            }
+            if(empty($calibreUrl)){
+                return false;
+            }
+
+            $expiresAt = Carbon::now()->addHour(12);
+
+            Cache::put($key, $calibreUrl, $expiresAt);
+        }
+        return $calibreUrl;
     }
 
     /**

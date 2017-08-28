@@ -8,12 +8,20 @@
 
 namespace SmartWiki\Http\Controllers;
 
-use Illuminate\Http\JsonResponse;
+use DB;
 use Log;
+use Cache;
+use SmartWiki\Models\CalibreDocument;
+use ZipArchive;
+use XMLReader;
 use SmartWiki\Models\Member;
 use SmartWiki\Models\Project;
+use SmartWiki\Models\Calibre;
+use SmartWiki\Models\Document;
 use SmartWiki\Models\Relationship;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Auth\Access\AuthorizationException;
+use SmartWiki\Extentions\Calibre\CalibreConverter;
 
 class ProjectController extends Controller
 {
@@ -377,5 +385,386 @@ class ProjectController extends Controller
         }
         return $this->jsonResult(0);
 
+    }
+
+    private function getCalibreProjectUrl($webPath) {
+        $url = null;
+        $path = public_path($webPath);
+        $handler = opendir($path);
+        try {
+            while(($file = readdir($handler)) !== false) {
+                $sub_dir = $path . DIRECTORY_SEPARATOR . $file;
+                if($file == '.' || $file == '..' || is_dir($sub_dir)) {
+                    continue;
+                } else {
+                    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    if(!empty($ext) && ($ext == "html")) {
+                        $url = url($webPath."/".$file);
+                        break;
+                    }
+                }
+            }
+        } finally {
+            closedir($handler);
+        }
+        return $url;
+    }
+
+    private function readCalibreMetadata($metaFile) {
+        $calibre = new Calibre();
+        if (file_exists($metaFile)) {
+            $reader = new XMLReader();
+            $reader->open($metaFile);
+            while($reader->read()) {
+                if($reader->nodeType == XMLReader::ELEMENT){
+                    $nodeName = $reader->name;
+                }
+                if($reader->nodeType == XMLReader::TEXT && !empty($nodeName)){
+                    switch($nodeName){
+                        case 'dc:title':
+                            $calibre->title = $reader->value;
+                            break;
+                        case 'dc:creator':
+                            $calibre->author = $reader->value;
+                            break;
+                        case 'dc:date':
+                            $calibre->date = $reader->value;
+                            break;
+                        case 'dc:publisher':
+                            $calibre->publisher = $reader->value;
+                            break;
+                        case 'dc:description':
+                            $calibre->description = $reader->value;
+                            break;
+                    }
+                }
+            }
+        }
+        return empty($calibre->title) ? null : $calibre;
+    }
+
+
+    private function generateCalibres(&$calibres, $SourceDir, $targetDir = "uploads/calibre") {
+        $proFiles = array();
+        $handler = opendir($SourceDir);
+        try {
+            $allowExt = explode('|', 'jpg|jpeg|gif|png|opf|zip');
+            while(($file = readdir($handler)) !== false) {
+                $sub_dir = $SourceDir . DIRECTORY_SEPARATOR . $file;
+                if($file == '.' || $file == '..') {
+                    continue;
+                } else if(is_dir($sub_dir)) {
+                    $this->generateCalibres($calibres, $sub_dir, $targetDir);
+                } else {
+                    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    if(!empty($ext) && in_array($ext, $allowExt)) {
+                        switch ($ext) {
+                            case 'zip':
+                                $proFiles["zip"] = $file;
+                                break;
+                            case 'opf':
+                                $proFiles["metadata"] = $file;
+                                break;
+                            default:
+                                $proFiles["cover"] = $file;
+                                break;
+                        }
+                    }
+                }
+            }
+        } finally {
+            closedir($handler);
+        }
+
+        if (!(empty($proFiles["zip"]) || empty($proFiles["metadata"]))) {
+            $metaFile = $SourceDir.DIRECTORY_SEPARATOR.$proFiles["metadata"];
+            $calibre = $this->readCalibreMetadata($metaFile);
+            if (!empty($calibre) && (Calibre::getCalibreCountByTitle($calibre->title) == 0)) {
+                $webPath = $targetDir."/".date('Ym').uniqid();
+                $tempPath = public_path($webPath);
+                @mkdir($tempPath, 0777, true);
+                foreach ($proFiles as $file) {
+                    $fullPath = $tempPath.DIRECTORY_SEPARATOR.$file;
+                    @copy($SourceDir.DIRECTORY_SEPARATOR.$file, $fullPath);
+                    $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+                    if ("zip" == $ext) {
+                        $zip = new ZipArchive();
+                        if ($zip->open($fullPath)) {
+                            $zip->extractTo($tempPath);
+                            $zip->close();
+                        }
+                    }
+                }
+                //$metaFile = $tempPath.DIRECTORY_SEPARATOR.$proFiles["metadata"];
+                //$calibre = $this->readCalibreMetadata($metaFile, $webPath);
+                $calibre->file_path = $webPath;
+                $calibre->url = $this->getCalibreProjectUrl($webPath);
+                if (!is_null($calibre) && !empty($calibre->url)) {
+                    if (!empty($proFiles["cover"])) {
+                        $calibre->cover = url($webPath."/".$proFiles["cover"]);
+                    }
+                    $calibre->addOrUpdate();
+                    $calibres[count($calibres)] = $calibre;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function deleteCalibreFile($path) {
+        $op = dir($path);
+        try {
+            while (false != ($item = $op->read())) {
+                if ($item == '.' || $item == '..') {
+                    continue;
+                }
+                if (is_dir($op->path . '/' . $item)) {
+                    $this->deleteCalibreFile($op->path . '/' . $item);
+                } else {
+                    unlink($op->path . '/' . $item);
+                }
+
+            }
+        } finally {
+            $op->close();
+        }
+        rmdir($path);
+    }
+
+    /**
+     * 读取Calibre书库列表并复制解压项目到uploads/calibre下
+     */
+    public function reloadCalibres() {
+        $calibres = array();
+        $calibrePath = env('CALIBRE_BOOK_PATH',"F:/EBLibrary");
+        if (is_dir($calibrePath)) {
+            $this->generateCalibres($calibres, iconv('UTF-8','gbk', $calibrePath));
+            $data['success'] = true;
+            $data['message'] = '导入Calibre库成功!';
+        } else {
+            $data['success'] = false;
+            $data['message'] = $calibrePath.'书库不存在!';
+        }
+        return $this->response->json($data);
+    }
+
+    /**
+     * 删除Calibre项目
+     * @param $id
+     */
+    public function deleteCalibre($id) {
+        $calibre = Calibre::whereCalibreId($id)->first();
+        if (!empty($calibre)) {
+            $webPath = $calibre->file_path;
+            if (Calibre::deleteProjectByCalibreId($id)) {
+                //删除上传的文件
+                try {
+                    CalibreDocument::deleteDocByCalibreId($id);
+                    $this->deleteCalibreFile(public_path($webPath));
+                }catch (\Exception $ex){
+                    if($ex->getCode() == 500){
+                        Log::error($ex->getMessage(),['trace'=>$ex->getTrace(),'file'=>$ex->getFile(),'line'=>$ex->getLine()]);
+                        return $this->jsonResult(500,null,'删除失败');
+                    }else{
+                        return $this->jsonResult($ex->getCode());
+                    }
+                }
+            }
+        }
+        $data['success'] = true;
+        $data['message'] = '删除Calibre图书成功!';
+
+        return $this->response->json($data);
+    }
+
+    public function queryCalibre($id) {
+        $calibre = Calibre::whereCalibreId($id)->first();
+        return $this->response->json($calibre);
+    }
+
+    /*
+    private function copyProject($source, &$target) {
+        $target->project_name = $source->project_name;
+        $target->description = $source->description;
+        $target->project_open_state = $source->project_open_state;
+        $target->project_cover = $source->project_cover;
+        $target->project_author = $source->project_author;
+        $target->project_publisher = $source->project_publisher;
+        $target->project_date = $source->project_date;
+    }
+    */
+
+    private function getCalibreConverter() {
+        $self = $this;
+        $saveProjectFunc = function($project, $calibre, callable $callback) use (&$self) {
+            if (!empty($project)) {
+                $DbProject = empty($project->project_id) ? null :
+                    Project::whereProjectId($project->project_id) ->first();
+                if (empty($DbProject)) {
+                    //$saveProject = new Project();
+                    //$self->copyProject($project, $saveProject);
+                    $project->create_at = $self->member_id;
+                    $project->addOrUpdate();
+                    $calibre->project_id = $project->project_id;
+                    $calibre->save();
+                    $DbProject = $project;
+
+                    if (!empty($callback)) {
+                        call_user_func($callback);
+                    }
+                }
+                return $DbProject;
+            }
+        };
+        $saveDocumentFunc = function($document, $calibre, callable $callback) use (&$self) {
+            $projectId = empty($document->project_id) ?
+                $calibre->project_id : $document->project_id;
+            if (!empty($document) && !empty($projectId)) {
+                $query = Document::whereProjectId($projectId)->where(
+                    "doc_name", "=", "$document->doc_name");
+                if (!empty($document->parent_id)) {
+                    $query = $query->where("parent_id", "=", $document->parent_id);
+                }
+                $DbDocument = !empty($query) ? $query->first() : null;
+                if (empty($DbDocument)) {
+                    $document->project_id = $projectId;
+                    $document->create_at = $self->member_id;
+                    $document->save();
+
+                    if (!empty($callback)) {
+                        call_user_func($callback);
+                    }
+
+                    return $document;
+                } else {
+                    return $DbDocument;
+                }
+            }
+        };
+        return new CalibreConverter($saveProjectFunc, $saveDocumentFunc);
+    }
+
+    public function convertCalibre($calibre, $converter = null) {
+        $success = false;
+        if (!empty($calibre) && !empty($calibre->title)) {
+            try {
+                $calibre->state = 2;
+                $calibre->save();
+
+                $imgPath = "uploads/".date('Ym')."/".uniqid();
+                $converter = !empty($converter) ? $converter :
+                    $this->getCalibreConverter();
+                $converter->convertCalibre($calibre, $imgPath);
+
+                $success = true;
+                //$project = $converter->getProject();
+                //$documents = $converter->getDocuments();
+                //$project->doc_count = count($documents);
+
+                //删除空白文档
+                $project_id = $calibre->project_id;
+                $document = Document::whereProjectId($project_id)
+                    ->where("doc_sort", "=", 0)->first();
+                if (!empty($document)) {
+                    Document::deleteDocument($document->doc_id);
+                }
+            } finally {
+                $calibre->state = ($success ? 1 : 0);
+                $calibre->save();
+            }
+        }
+        return $success;
+    }
+
+    public function importCalibre($id) {
+        $calibre = Calibre::whereCalibreId($id)->first();
+        if (empty($calibre)) {
+            $data['message'] = '未找到相关Calibre记录!';
+        } else if ($calibre->state != 0) {
+            $data['message'] = '该记录已导入或其他用户正在导入中。。。!';
+        } else if ($this->convertCalibre($calibre)) {
+            $data['success'] = true;
+            $data['message'] = '导入《'.$calibre->title.'》成功!';
+        }
+        return $this->response->json($data);
+    }
+
+    public function importAllCalibre() {
+        $success = 0; $failed = 0;
+        $converter = $this->getCalibreConverter();
+        $calibres = Calibre::whereState(0)->get(array("calibre_id"));
+        foreach ($calibres as $item) {
+            $calibre = Calibre::whereCalibreId($item->calibre_id)->first();
+            if (!empty($calibre) && ($calibre->state == 0)) {
+                $boolean = false;
+                try {
+                    $boolean = $this->convertCalibre($calibre, $converter);
+                } catch(\Exception $ex) {
+                    Log::error($ex->getMessage(),['trace'=>$ex->getTrace(),'file'=>$ex->getFile(),'line'=>$ex->getLine()]);
+                }
+                if ($boolean) {
+                    $success++;
+                } else {
+                    $failed++;
+                }
+            }
+        }
+        $data['success'] = true;
+        $data['message'] = '导入完成，导入成功'.$success.'，失败'.$failed.'！';
+        return $this->response->json($data);
+    }
+
+    /**
+     * 替换calibre书库中的part0001.html格式的链接地址
+     * @param $id
+     * @return mixed
+     */
+    public function replaceCalibreUrl($id) {
+        $documents = Document::whereProjectId($id)->get();
+        $calibreUrl = Document::getCalibreUrlFromCache($id);
+        if (!empty($documents) && !empty($calibreUrl)) {
+            foreach ($documents as $document) {
+                $matches = array();
+                $content = $document->doc_content;
+                if (!empty($content) &&
+                    preg_match_all("/\\]\\(part(\d+)\\.html(#.*)?\\)/", $content, $matches)) {
+                    foreach($matches[0] as $match) {
+                        $url = substr($match, 2, strlen($match) - 3);
+                        if (!empty($calibreUrl[$url])) {
+                            $content = str_replace($match, "](".$calibreUrl[$url].")", $content);
+                        } else {
+                            $content = str_replace($match, "](#)", $content);
+                        }
+                    }
+                    $document->doc_content = $content;
+                    $document->save();
+                }
+            }
+        }
+        $data['success'] = true;
+        $data['message'] = '文档处理完成，已将calibre链接替换完毕！';
+        return $this->response->json($data);
+    }
+
+    /**
+     * 处理代码块的pre标签问题
+     * @param $id
+     * @return mixed
+     */
+    public function dealCalibreCode($id) {
+        $success = 0;
+        $documents = Document::whereProjectId($id)->get();
+        foreach ($documents as $document) {
+            $content = $document->doc_content;
+            $content = CalibreConverter::dealCodePartContent($content);
+            if ($content != $document->doc_content) {
+                $document->doc_content = $content;
+                $document->save();
+                $success++;
+            }
+        }
+        $data['success'] = true;
+        $data['message'] = "文档处理完成，已将代码块pre标签处理完毕，成功处理".$success."！";
+        return $this->response->json($data);
     }
 }

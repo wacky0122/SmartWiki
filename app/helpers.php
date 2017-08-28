@@ -259,7 +259,7 @@ if(!function_exists('markdown_converter')) {
         $environment->addExtension(new Webuni\CommonMark\AttributesExtension\AttributesExtension());
 
         $environment->addBlockParser(new HttpMethodParser());
-        $environment->addInlineParser(new AutoLinkParser());
+        //$environment->addInlineParser(new AutoLinkParser());
 
         $environment->addBlockRenderer('League\CommonMark\Block\Element\Heading',new SmartWiki\Extentions\Markdown\Renderer\HeadingRenderer());
         $environment->addBlockRenderer('League\CommonMark\Block\Element\Document',new SmartWiki\Extentions\Markdown\Renderer\TocRenderer());

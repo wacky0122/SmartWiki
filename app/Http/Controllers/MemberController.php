@@ -9,14 +9,13 @@
 namespace SmartWiki\Http\Controllers;
 
 use SmartWiki\Models\WikiConfig;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use SmartWiki\Models\Member;
 use Image;
 use Config;
 use SmartWiki\Models\Project;
+use SmartWiki\Models\Calibre;
 use DB;
 
 class MemberController extends Controller
@@ -115,9 +114,11 @@ class MemberController extends Controller
     {
         $this->data['member_projects'] = true;
 
+        $projectName = $this->request->get("keyword");
+
         $page = max(intval($this->request->input('page',1)),1);
 
-        $this->data['lists'] = Project::getParticipationProjectList($this->member_id,$page,10);
+        $this->data['lists'] = Project::getParticipationProjectList($this->member_id,$page,10, $projectName);
 
 
 
@@ -458,6 +459,17 @@ class MemberController extends Controller
         $data['message '] = '文件校验失败';
 
         return $this->response->json($data);
+    }
+
+    public function calibres() {
+        $calibreTitle = $this->request->get("keyword");
+        $this->data["imported"] = Calibre::getCalibreCountByState(1, $calibreTitle);
+        $this->data["unImport"] = Calibre::getCalibreCountByState(0, $calibreTitle);
+        $this->data["importing"] = Calibre::getCalibreCountByState(2, $calibreTitle);
+
+        $page = max(intval($this->request->input('page',1)),1);
+        $this->data['lists'] = Calibre::getCalibreProjectList($calibreTitle, $page, 10);
+        return view('member.calibres',$this->data);
     }
 
 }

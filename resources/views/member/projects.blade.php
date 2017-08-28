@@ -27,6 +27,8 @@
                     },'json');
                }
             });
+
+            $("div.searchbar").show().find("form.form-inline").attr("action", "/member/projects");
         });
 
     </script>

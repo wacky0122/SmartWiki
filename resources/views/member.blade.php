@@ -42,6 +42,14 @@
                     </li>
                 </ul>
             </div>
+            <div class="searchbar pull-left visible-lg-inline-block visible-md-inline-block" style="display: none!important;">
+                <form class="form-inline" action="#" method="get">
+                    <input class="form-control" name="keyword" type="search" placeholder="请输入关键词...">
+                    <button class="search-btn">
+                        <i class="fa fa-search"></i>
+                    </button>
+                </form>
+            </div>
         </div>
         <nav class="navbar-collapse hidden-xs hidden-sm" role="navigation">
             <ul class="nav navbar-nav navbar-right">
@@ -60,6 +68,7 @@
         <div class="page-left visible-lg-inline-block visible-md-inline-block">
             <ul class="menu">
                 <li{!! (isset($member_projects) ? ' class="active"' : '') !!}><a href="{{route('member.projects')}}" class="item"><i class="fa fa-sitemap"></i> 我的项目</a> </li>
+                <li{!! (isset($member_calibres) ? ' class="active"' : '') !!}><a href="{{route('member.calibres')}}" class="item"><i class="fa fa-sitemap"></i> Calibre库</a> </li>
                 <li{!! (isset($member_index) ? ' class="active"' : '') !!}><a href="{{route('member.index')}}" class="item"><i class="fa fa-user"></i> 个人资料</a> </li>
                 <li{!! (isset($member_account) ? ' class="active"' : '') !!}><a href="{{route('member.account')}}" class="item"><i class="fa fa-lock"></i> 修改密码</a> </li>
 

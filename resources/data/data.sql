@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `wk_document`(
   `modify_time` datetime DEFAULT NULL,
   `modify_at` int(11) DEFAULT NULL,
   `version` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '当前时间戳',
+  `calibre_url` varchar(255) COMMENT 'calibre书库对应html链接url',
   PRIMARY KEY (`doc_id`),
   KEY `project_id_index` (`project_id`),
   KEY `doc_sort_index` (`doc_sort`),
@@ -43,8 +44,8 @@ CREATE TABLE  IF NOT EXISTS `wk_document_history` (
 ******************************************/
 CREATE TABLE  IF NOT EXISTS `wk_project` (
   `project_id` int(11) NOT NULL AUTO_INCREMENT,
-  `project_name` varchar(200) NOT NULL COMMENT '项目名称',
-  `description` varchar(2000) DEFAULT NULL COMMENT '项目描述',
+  `project_name` varchar(255) NOT NULL COMMENT '项目名称',
+  `description` varchar(5000) DEFAULT NULL COMMENT '项目描述',
   `doc_tree` text COMMENT '当前项目的文档树',
   `project_open_state` tinyint(4) DEFAULT '0' COMMENT '项目公开状态：0 私密，1 完全公开，2 加密公开',
   `project_password` varchar(255) DEFAULT NULL COMMENT '项目密码',
@@ -54,6 +55,10 @@ CREATE TABLE  IF NOT EXISTS `wk_project` (
   `modify_time` datetime DEFAULT NULL,
   `modify_at` int(11) DEFAULT NULL,
   `version` varchar(50) NOT NULL DEFAULT '0.1' COMMENT '版本号',
+  `project_cover` varchar(255) DEFAULT NULL COMMENT '封面',
+  `project_author` varchar(255) DEFAULT NULL COMMENT '作者',
+  `project_publisher` varchar(255) DEFAULT NULL COMMENT '出版',
+  `project_date` varchar(255) DEFAULT NULL COMMENT '出版时间',
   PRIMARY KEY (`project_id`),
   UNIQUE KEY `project_id_uindex` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='项目表';
@@ -245,3 +250,38 @@ CREATE TABLE IF NOT EXISTS `wk_requests` (
   UNIQUE KEY `wk_api_api_id_uindex` (`api_id`),
   KEY `wk_api_classify_id_index` (`classify_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='接口表';
+
+/*************************************************
+ * Calibre书库表
+ ***************************************************/
+CREATE TABLE IF NOT EXISTS `wk_calibre` (
+  `calibre_id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `title` varchar(255) NOT NULL COMMENT '名称',
+  `author` varchar(255) DEFAULT NULL COMMENT '作者',
+  `date` varchar(100) DEFAULT NULL COMMENT '出版时间',
+  `cover` varchar(255) DEFAULT NULL COMMENT '封面url',
+  `publisher` varchar(255) DEFAULT NULL COMMENT '出版',
+  `description` varchar(5000) DEFAULT NULL COMMENT '描述',
+  `url` varchar(255) NOT NULL DEFAULT '0' COMMENT '地址',
+  `state` tinyint(4) NOT NULL DEFAULT '0' COMMENT '0没有导入，1已导入',
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '创建时间',
+  `file_path` varchar(500) NOT NULL COMMENT '文件缓存路径',
+  `project_id` int(11) DEFAULT NULL,
+  PRIMARY KEY (`calibre_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='calibre库导入表';
+
+/*************************************************
+ * Calibre书库文档表
+ ***************************************************/
+CREATE TABLE IF NOT EXISTS `wk_calibre_doc` (
+	`calibre_doc_id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `calibre_id` int(11) NOT NULL COMMENT 'calibreID',  
+  `calibre_url` varchar(255) DEFAULT NULL COMMENT 'html链接url',
+  `calibre_html` LONGTEXT DEFAULT NULL COMMENT 'html内容',
+  `doc_id` bigint(20) COMMENT 'documentID',
+  `doc_name` varchar(255) NOT NULL COMMENT '名称',
+  `parent_id` bigint(20) NOT NULL DEFAULT '0' COMMENT '父ID',
+  `doc_content` LONGTEXT DEFAULT NULL COMMENT 'markdown内容',  
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '创建时间',  
+  PRIMARY KEY (`calibre_doc_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='calibre库Doc表';
