@@ -172,6 +172,7 @@ $(document).ready(function () {
         $then.find("input[name='id']").val('');
         $then.find("input[name='parentId']").val(doc_id);
         $then.find("input[name='documentName']").val('');
+        $then.find("#documentFileDiv").show();
         formError.text('');
 
         $then.modal({ show : true });
@@ -206,6 +207,7 @@ $(document).ready(function () {
         $then.find("input[name='id']").val(doc_id);
         $then.find("input[name='parentId']").val(parentId);
         $then.find("input[name='documentName']").val(text);
+        $then.find("#documentFileDiv").hide();
         formError.text('');
 
         $then.modal({ show : true });
@@ -272,10 +274,10 @@ $(document).ready(function () {
             $btn.button('reset')
             if(res.errcode == 0) {
                 var data = { "id" : res.data.doc_id,'parent' : res.data.parent_id,"text" : res.data.name};
-
                 var node = win.treeCatalog.get_node(data.id);
                 if(node){
                     win.treeCatalog.rename_node({"id":data.id},data.text);
+                    loadCompleted = true;
                 }else {
                     var result = win.treeCatalog.create_node(res.data.parent_id, data, 'last');
                     win.treeCatalog.deselect_all();
@@ -283,7 +285,19 @@ $(document).ready(function () {
                     win.editor.clear();
                 }
                 $("#markdown-save").removeClass('change').addClass('disabled');
-                $then.modal('hide');
+
+                var htmlFile = $then.find("input[name='documentFile']").val();
+                if  ($then.find("#documentFileDiv").is(":visible") && htmlFile) {
+                    $.getHtmlConverter().convertFile(htmlFile, function(section) {
+                        if (section && section.markdown) {
+                            win.editor.appendMarkdown(section.markdown);
+                            $("#markdown-save").removeClass('disabled').addClass('change');
+                        }
+                        $then.modal('hide');
+                    })
+                } else {
+                    $then.modal('hide');
+                }
             }else{
                 formError.text(res.message);
             }
@@ -324,4 +338,27 @@ $(document).ready(function () {
         }
     });
 
+    $then.find("#documentFileBtn").change(function() {
+        var formData = new FormData(),
+            guid  = (new Date).getTime(),
+            action = "/upload" + "?guid=" + guid;
+        formData.append("document-file-file", this.files[0]);
+        $.ajax({
+            url: action,
+            type: "POST",
+            async : false,
+            data: formData,
+            contentType: false,
+            processData: false,
+            success: function (data) {
+               console.log(data);
+               if (data && data.success) {
+                   $then.find("input[name='documentFile']").val(data.url);
+               }
+            },
+            error: function () {
+                console.log("上传失败！");
+            }
+        });
+    });
 })(window);

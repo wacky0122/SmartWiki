@@ -324,6 +324,8 @@ class DocumentController extends Controller
      */
     public function upload()
     {
+        //相对路径
+        $relPath = 'uploads/' . date('Ym');
         $allowExt = ["jpg", "jpeg", "gif", "png"];
         //如果上传的是图片
         if(isset($_FILES['editormd-image-file'])){
@@ -345,8 +347,19 @@ class DocumentController extends Controller
 
             $file = $this->request->file('editormd-file-file');
             $allowExt = explode('|',env('UPLOAD_FILE_EXT','txt|doc|docx|xls|xlsx|ppt|pptx|pdf|7z|rar'));
+        } elseif(isset($_FILES["document-file-file"])) {
+            if(!env('UPLOAD_HTML_ENABLE','0')){
+                $data['success'] = 0;
+                $data['message'] = '没有开启文件上传功能';
+                return $this->response->json($data);
+            }
+
+            $file = $this->request->file('document-file-file');
+            $allowExt = explode('|',env('UPLOAD_HTML_EXT','html'));
+
+            $relPath = 'uploads/html' . date('Ym');
         }
-        $dirPath = public_path('uploads/' . date('Ym'));
+        $dirPath = public_path($relPath);
         //如果目标目录不能创建
         if (!is_dir($dirPath) && !mkdir($dirPath)) {
             $data['success'] = 0;
@@ -373,7 +386,8 @@ class DocumentController extends Controller
             //生成文件名
             $fileName = uniqid() . '_' . dechex(microtime(true)) .'.'.$ext;
             try{
-                $path = $file->move('uploads/' . date('Ym'),$fileName);
+                //$path = $file->move('uploads/' . date('Ym'),$fileName);
+                $path = $file->move($relPath, $fileName);
 
                 $webPath = '/' . $path->getPath() . '/' . $fileName;
 

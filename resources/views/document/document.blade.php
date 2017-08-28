@@ -69,9 +69,20 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="documentName" class="col-sm-2 control-label" id="inputTitle">名称</label>
-                        <div class="col-sm-10">
+                        <label for="documentName" class="col-sm-3 control-label" id="inputTitle">名称</label>
+                        <div class="col-sm-8">
                             <input type="text" name="documentName" class="form-control" id="documentName" placeholder="文档名称" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="form-group" id="documentFileDiv">
+                        <label for="documentFile" class="col-sm-3 control-label" id="inputTitle">导入HTML</label>
+                        <div class="col-sm-6" style="padding-right: 0px;">
+                            <input type="text" name="documentFile" class="form-control" data-url=""
+                                   id="documentFile" placeholder="文件地址" autocomplete="off">
+                        </div>
+                        <div class="editormd-file-input">
+                            <input type="file" id="documentFileBtn">
+                            <input type="button" value="本地上传" class="btn btn-default">
                         </div>
                     </div>
                 </div>
@@ -271,6 +282,8 @@
         });
     });
 </script>
+<script type="text/javascript" src="{{asset('static/htmlConverter/dist/to-markdown.js')}}"></script>
+<script type="text/javascript" src="{{asset('static/htmlConverter/htmlConverter.js')}}"></script>
 <script type="text/javascript" src="{{asset('static/scripts/wiki.js')}}"></script>
 </body>
 </html>
