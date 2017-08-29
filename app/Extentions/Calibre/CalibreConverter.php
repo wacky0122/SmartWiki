@@ -25,7 +25,7 @@ class CalibreConverter {
     protected $projectId;
     protected $documents = array();
 
-    private $docHtmls = array();
+    private $htmlPages = array();
     private $cssStyles = array();
     private $converter;
 
@@ -203,8 +203,8 @@ class CalibreConverter {
         return empty($htmlResult) ? $html : $htmlResult;
     }
 
-    private function parseHtmlContent($url) {
-        if (empty($this->docHtmls[$url])) {
+    private function parseHtmlContent($url, &$nextUrl) {
+        if (empty($this->htmlPages[$url])) {
             $content = file_get_contents($url);
             //删除“pre”节点的属性
             $content = CalibreConverter::removeNodeAttribute($content, "pre");
@@ -215,11 +215,28 @@ class CalibreConverter {
             $html_dom = new ParserDom($content);
             $contentDiv = $html_dom->find("div.calibreEbookContent", 0);
             foreach ($contentDiv->find("div.calibreEbNavTop") as $div) {
+                //获取下一页Html文件路径
+                $nextNode = $div->find("a.calibreANext");
+                if (!empty($nextNode) && !empty($nextNode[0]->node)) {
+                    try {
+                        $nextUrl = trim($nextNode[0]->getAttr("href"));
+                        if (!empty($nextUrl)) {
+                            $nextUrl = substr($url, 0,
+                                    strlen($url) - strlen(strrchr($url, "/")))."/".$nextUrl;
+                            if (!(is_file($nextUrl) && file_exists($nextUrl))) {
+                                $nextUrl = null;
+                            }
+                        }
+                    } catch(\Exception $ex) {
+                        $nextUrl = null;
+                    }
+                }
                 $div->node->parentNode->removeChild($div->node);
             }
-            $this->docHtmls[$url] = $contentDiv->node;
+            $this->htmlPages[$url] = array("node"=>$contentDiv->node, "next"=>$nextUrl);
         }
-        $node = $this->docHtmls[$url];
+        $node = $this->htmlPages[$url]["node"];
+        $nextUrl = $this->htmlPages[$url]["next"];
         return empty($node) ? null : new ParserDom($node);
     }
 
@@ -254,8 +271,7 @@ class CalibreConverter {
         return $target;
     }
 
-    private function filterHtmlContent($url, $begin, $end) {
-        $root = $this->parseHtmlContent($url);
+    private function filterHtmlContent($root, $begin, $end) {
         $rootNode = $root->node;
         $findEndNode = function($nodes) use (&$root) {
             $endNode = null;
@@ -272,7 +288,7 @@ class CalibreConverter {
         };
         $beginNode = empty($begin) ? null : $root->find("#".$begin, 0);
         $beginNode = !$beginNode || empty($beginNode) ? null : $beginNode->node;
-        $endNode = empty($end) ? null : $findEndNode($end);
+        $endNode = empty($end) ? null : $findEndNode(explode(",", $end));
 
         if (empty($beginNode) && empty($endNode)) {
             return $root;
@@ -282,18 +298,6 @@ class CalibreConverter {
             $htmlNode = $this->filterHtmlNodes($rootNode, $beginNode, $endNode, $isBegin, $isEnd);
             return new ParserDom($htmlNode);
         }
-    }
-
-    private function replaceImagePath(&$content, $path) {
-        $imageFiles = array();
-        foreach ($content->find("img") as $img) {
-            if (!empty($img) && !empty($img->getAttr("src"))) {
-                $file = substr(strrchr($img->getAttr("src"), "/"), 1);
-                $img->node->setAttribute("src", "/".$path."/".$file);
-                $imageFiles[count($imageFiles)] = $file;
-            }
-        }
-        return empty($imageFiles) ? null : $imageFiles;
     }
 
     private function parseIndexHtml($node, $parent, &$documents) {
@@ -331,6 +335,69 @@ class CalibreConverter {
         }
     }
 
+    private function parseIndexContent($url, &$documents) {
+        $root = $this->parseHtmlContent($url, $nextPage);
+        $content = $this->filterHtmlContent($root, null, null);
+        $this->parseIndexHtml($content, null, $documents);
+
+        $getEndNodeIds = function($url, $index) use (&$documents) {
+            $endNodes = array();
+            for ($i = $index + 1, $len = count($documents); $i < $len; $i++) {
+                $curUrl = $documents[$i]["doc_url"];
+                $curNode = $documents[$i]["doc_node"];
+                if ($curUrl != $url) {
+                    break;
+                } else if (!empty($curNode)) {
+                    $endNodes[count($endNodes)] = $curNode;
+                }
+            }
+            return implode(",", $endNodes);
+        };
+
+        for ($i = 0, $len = count($documents); $i < $len; $i++) {
+            $url = $documents[$i]["doc_url"];
+            $documents[$i]["doc_next"] = ($i < $len - 1) ? $documents[$i + 1]["doc_url"] : null;
+            $documents[$i]["doc_node_start"] = $documents[$i]["doc_node"];
+            $documents[$i]["doc_node_end"] = $getEndNodeIds($url, $i);
+        }
+
+        return $documents;
+    }
+
+    private function parseDocContent(&$document, &$docImages) {
+        $imagePath = $this->imgPath;
+        $replaceImages = function ($content) use (&$docImages, &$imagePath) {
+            foreach ($content->find("img") as $img) {
+                if (!empty($img) && !empty($img->getAttr("src"))) {
+                    $file = substr(strrchr($img->getAttr("src"), "/"), 1);
+                    $img->node->setAttribute("src", "/".$imagePath."/".$file);
+                    $docImages[count($docImages)] = $file;
+                }
+            }
+            return $content;
+        };
+
+        $fullUrl = public_path($this->calibre->file_path."/". $document["doc_url"]);
+        $nextUrl = public_path($this->calibre->file_path."/". $document["doc_next"]);
+
+        $root = $this->parseHtmlContent($fullUrl, $nextPage);
+        $content = $this->filterHtmlContent($root,
+            $document["doc_node_start"], $document["doc_node_end"]);
+        $contentHtml = $replaceImages($content)->innerHtml();
+
+        if (empty($end) && !empty($nextUrl)) {
+            //文档包含多个html：当下一页的url小于下一个文档的url时，则表示下一页属于当前文档
+            while (!empty($nextPage) && (strcasecmp($nextPage, $nextUrl) < 0)) {
+                $nextRoot = $this->parseHtmlContent($nextPage, $nextPage);
+                $nextRoot = $this->filterHtmlContent($nextRoot, null, null);
+
+                $contentHtml .= "\r\n".$replaceImages($nextRoot)->innerHtml();
+            }
+        }
+        $document["doc_html"] = $contentHtml;
+        $document["doc_content"] = $this->toMarkdown($contentHtml);
+    }
+
     private function parseProject() {
         $coverFile = null;
         $project = new Project();
@@ -362,24 +429,6 @@ class CalibreConverter {
     }
 
     private function parseDocument() {
-        $getUrlNode = function($doc, &$url, &$node) {
-            $url = $doc["doc_url"];
-            $node = $doc["doc_node"];
-        };
-        $getEndNodeIds = function($documents, $url, $index) use (&$getUrlNode) {
-            $endNodes = array();
-            for ($i = $index + 1, $len = count($documents); $i < $len; $i++) {
-                $curUrl = ""; $curNode = "";
-                $getUrlNode($documents[$i], $curUrl, $curNode);
-                if ($curUrl != $url) {
-                    break;
-                } else if (!empty($curNode)) {
-                    $endNodes[count($endNodes)] = $curNode;
-                }
-            }
-            return $endNodes;
-        };
-
         //解析stylesheet.css样式文件
         if (env('CALIBRE_CSS_PARSE', false)) {
             $rootPath = public_path($this->calibre->file_path);
@@ -387,20 +436,13 @@ class CalibreConverter {
         }
 
         $documents = array();
-        $indexFile = $this->calibre->file_path."/".substr(strrchr($this->calibre->url, "/"), 1);
-        $html = $this->filterHtmlContent(public_path($indexFile), null, null);
-        $this->parseIndexHtml($html, null, $documents);
+        $indexUrl = public_path($this->calibre->file_path."/".
+            substr(strrchr($this->calibre->url, "/"), 1));
+        $this->parseIndexContent($indexUrl, $documents);
         for ($i = 0, $len = count($documents); $i < $len; $i++) {
             $document = $documents[$i];
-
-            $url = ""; $beginNode = "";
-            $getUrlNode($document, $url, $beginNode);
-            $endNodes = $getEndNodeIds($documents, $document["doc_url"], $i);
-            $url = public_path($this->calibre->file_path. "/". $url);
-
-            $content = $this->filterHtmlContent($url, $beginNode, $endNodes);
-            $docImages = $this->replaceImagePath($content, $this->imgPath);
-            $document["doc_content"] = $this->toMarkdown($content->innerHtml());
+            $docImages = array();
+            $this->parseDocContent($document, $docImages);
 
             $newDocument = new Document();
             $newDocument->doc_name = $document["doc_name"];
@@ -443,7 +485,7 @@ class CalibreConverter {
             }
             $calibreDoc->calibre_id = $this->calibre->calibre_id;
             $calibreDoc->calibre_url = $newDocument->calibre_url;
-            $calibreDoc->calibre_html = $content->innerHtml();
+            $calibreDoc->calibre_html = $document["doc_html"];
             $calibreDoc->doc_name = $newDocument->doc_name;
             $calibreDoc->doc_content = $document["doc_content"];
             $calibreDoc->doc_id = $newDocument->doc_id;
@@ -499,7 +541,7 @@ class CalibreConverter {
         $this->project = null;
         $this->projectId = null;
         $this->documents = array();
-        $this->docHtmls = array();
+        $this->htmlPages = array();
         $this->cssStyles = array();
 
         $this->parseProject();

@@ -9,6 +9,7 @@
 namespace SmartWiki\Http\Controllers;
 
 use League\Flysystem\Exception;
+use SmartWiki\Extentions\Calibre\CalibreConverter;
 use SmartWiki\Models\Document;
 use SmartWiki\Models\DocumentHistory;
 use SmartWiki\Models\Project;
@@ -599,5 +600,23 @@ class DocumentController extends Controller
         }
         $content .= '';
         return $content;
+    }
+
+    /**
+     * 处理pre标签问题
+     * @param $doc_id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function deal($doc_id) {
+        $document = Document::find($doc_id);
+        if(empty($document)){
+            abort(404);
+        }
+        $document->doc_content = CalibreConverter::dealCodePartContent($document->doc_content);
+        $document->save();
+
+        $data['success'] = true;
+        $data['message'] = '文档处理完成，已将代码块pre标签处理完毕！';
+        return $this->response->json($data);
     }
 }

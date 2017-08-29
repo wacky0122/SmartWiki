@@ -142,6 +142,11 @@ Route::get('/docs/show/{doc_id}',[
     'as' => 'document.show', 'uses' => 'DocumentController@show'
 ]);
 
+//处理pre代码块节点
+Route::get('/docs/deal/{doc_id}',[
+    'as' => 'document.deal', 'uses' => 'DocumentController@deal'
+]);
+
 //文档编辑小部件
 Route::get('widget/edit-document',[
     'as' => 'widget.editDocument', 'uses' => 'WidgetController@editDocument'
